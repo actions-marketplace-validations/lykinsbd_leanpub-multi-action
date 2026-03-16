@@ -1,65 +1,59 @@
-[tool.poetry]
+[project]
 name = "leanpub-multi-action"
 version = "1.0.2"
 description = "GitHub Actions for Leanpub.com"
-authors = ["Brett Lykins <lykinsbd@gmail.com>"]
+authors = [{name = "Brett Lykins", email = "lykinsbd@gmail.com"}]
+requires-python = ">=3.13"
+dependencies = [
+    "requests>=2",
+    "click>=8",
+]
 
-[tool.poetry.dependencies]
-python = "^3.9"
-requests = "^2"
-click = "^8"
+[dependency-groups]
+dev = [
+    "pytest",
+    "requests-mock",
+    "pyyaml",
+    "ruff",
+    "pylint",
+    "yamllint",
+    "invoke",
+    "toml",
+    "towncrier",
+    "pre-commit",
+    "mypy",
+    "types-requests",
+]
 
-[tool.poetry.dev-dependencies]
-pytest = "*"
-requests_mock = "*"
-pyyaml = "*"
-black = "*"
-pylint = "*"
-pydocstyle = "*"
-yamllint = "*"
-bandit = "*"
-invoke = "*"
-toml = "*"
-flake8 = "*"
-towncrier = "*"
-isort = "*"
-
-[tool.poetry.scripts]
+[project.scripts]
 lma = "leanpub_multi_action.cli:main"
 
-[tool.black]
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
 line-length = 120
-target-version = ["py39"]
-include = '\.pyi?$'
-exclude = '''
-(
-  /(
-      \.eggs         # exclude a few common directories in the
-    | \.git          # root of the project
-    | \.hg
-    | \.mypy_cache
-    | \.tox
-    | \.venv
-    | _build
-    | buck-out
-    | build
-    | dist
-  )/
-  | settings.py     # This is where you define files that should not be stylized by black
-                     # the root of the project
-)
-'''
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "D", "S"]
+ignore = ["E501", "D203", "D213"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["leanpub_multi_action"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "D"]
 
 [tool.pylint.basic]
 # No docstrings required for private methods (Pylint default), or for test_ functions, or for inner Meta classes.
 no-docstring-rgx="^(_|test_|Meta$)"
 
 [tool.pylint.messages_control]
-# Line length is enforced by Black, so pylint doesn't need to check it.
-# Pylint and Black disagree about how to format multi-line arrays; Black wins.
+# Line length is enforced by ruff, so pylint doesn't need to check it.
 disable = """,
     line-too-long,
-    bad-continuation,
     """
 
 [tool.pylint.miscellaneous]
@@ -68,10 +62,6 @@ notes = """,
     FIXME,
     XXX,
     """
-
-[build-system]
-requires = ["poetry>=1.1"]
-build-backend = "poetry.masonry.api"
 
 [tool.pytest.ini_options]
 testpaths = [
@@ -84,8 +74,3 @@ package = "leanpub_multi_action"
 filename = "RELEASE_NOTES.rst"
 single_file = false
 name = "Leanpub Multi Action"
-
-[tool.isort]
-profile = "black"
-skip_gitignore = true
-line_length = 120

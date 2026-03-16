@@ -1,102 +1,118 @@
 """Leanpub Actions for GitHub Actions Workflows."""
 
 import datetime
+import pathlib
 import sys
 
 import click
+import requests
 
 from leanpub_multi_action.leanpub import Leanpub
 
 
-@click.command()
-@click.option(
-    "--leanpub_api_key",
-    envvar="INPUT_LEANPUB-API-KEY",
-    help="Leanpub API Key. Will also look for 'INPUT_LEANPUB-API-KEY' environment variable.",
-)
-@click.option(
-    "--book_slug",
-    envvar="INPUT_LEANPUB-BOOK-SLUG",
-    help=(
-        "Book Slug is the unique book name on Leanpub.com (i.e. the 'mybook' portion of https://leanpub.com/mybook)."
-        "Will also look for 'INPUT_LEANPUB-BOOK-SLUG' environment variable."
-    ),
-)
-@click.option("--preview", envvar="INPUT_PREVIEW", is_flag=True, help="Preview a book on Leanpub.")
-@click.option("--publish", is_flag=True, help="Publish a book on Leanpub.")
-@click.option("--check_status", is_flag=True, help="Check the job status of a Preview or Publish on Leanpub.")
-def main(
-    leanpub_api_key: str = None,
-    book_slug: str = None,
-    preview: bool = False,
-    publish: bool = False,
-    check_status: bool = False,
+def _handle_response(
+    resp: requests.Response | None,
+    err: requests.RequestException | None,
+    success_msg: str,
 ) -> int:
-    """Entrypoint into our script.
-
-    Publish, Preview, or Check Status on an existing Publish/Preview job.
+    """Handle a Leanpub API response and return an exit code.
 
     Args:
-        leanpub_api_key (bool): API Key for the Leanpub API.
-            If not set, will error out.
-        book_slug (bool): Unique book name from the leanpub URL of the book.
-            i.e. the 'mybook' portion of https://leanpub.com/mybook
-            If not set, will error out.
-        check_status(bool): Check the job status of a Preview or Publish on Leanpub.
+        resp: The API response, if successful.
+        err: The exception, if the request failed.
+        success_msg: Message to print on success.
 
     Returns:
-        int: exit_code as an integer to return to OS
+        Exit code: 0 for success, 1 for failure.
+
     """
-    exit_code = 0
-
-    # Attempt to find API Key
-    if not leanpub_api_key:
-        exit_code = 1
-        print("No Leanpub API Key Found!")
-        return exit_code
-
-    # Attempt to find Book Slug
-    if not book_slug:
-        exit_code = 1
-        print("No Leanpub Book Slug Found!")
-        return exit_code
-
-    print("Leanpub API Key and Book Slug found")
-
-    # We need to be doing one of the three possible actions
-    if not publish and not preview and not check_status:
-        exit_code = 1
-        print("Must either Publish, Preview, or Check Status!")
-        return exit_code
-
-    err = None
-
-    # Instantiate the Leanpub client
-    leanpub = Leanpub(leanpub_api_key=leanpub_api_key)
-
-    # Check if we are previewing
-    if preview:
-        print(f"Generating a Preview of '{book_slug}'")
-        resp, err = leanpub.preview(book_slug=book_slug)
-        if err is not None:
-            print(err)
-            exit_code = 1
-        elif resp.status_code == 200:
-            print(f"Preview job started at {datetime.datetime.utcnow()}")
-        else:
-            print("Unknown error has occurred!")
-            exit_code = 1
-
-    # Check if we are publishing
-    if publish:
-        pass  # TODO: build this
-
-    # Check if we are checking :lulz:
-    if check_status:
-        pass  # TODO: make this happen
-
-    return exit_code
+    if err is not None:
+        print(err)
+        return 1
+    if resp is not None and resp.status_code == 200:
+        print(success_msg)
+        return 0
+    print("Unknown error has occurred!")
+    return 1
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+@click.group()
+@click.option(
+    "--leanpub-api-key",
+    envvar="INPUT_LEANPUB-API-KEY",
+    required=True,
+    help="Leanpub API Key.",
+)
+@click.option(
+    "--book-slug",
+    envvar="INPUT_LEANPUB-BOOK-SLUG",
+    required=True,
+    help="Leanpub book slug (the URL path component).",
+)
+@click.pass_context
+def main(ctx: click.Context, leanpub_api_key: str, book_slug: str) -> None:
+    """Interact with Leanpub: preview, publish, or check job status."""
+    ctx.ensure_object(dict)
+    ctx.obj["client"] = Leanpub(leanpub_api_key=leanpub_api_key)
+    ctx.obj["book_slug"] = book_slug
+
+
+@main.command()
+@click.option("--subset", envvar="INPUT_SUBSET", is_flag=True, help="Preview only the Subset.txt files.")
+@click.option(
+    "--single-file",
+    envvar="INPUT_SINGLE-FILE",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to a Markdown file to preview.",
+)
+@click.pass_context
+def preview(ctx: click.Context, subset: bool, single_file: str | None) -> None:
+    """Generate a preview of the book."""
+    book_slug = ctx.obj["book_slug"]
+    client = ctx.obj["client"]
+    now = datetime.datetime.now(datetime.UTC)
+
+    if single_file:
+        content = pathlib.Path(single_file).read_text(encoding="utf-8")
+        print(f"Generating a Single File Preview of '{book_slug}' from '{single_file}'")
+        resp, err = client.preview_single(book_slug=book_slug, content=content)
+        sys.exit(_handle_response(resp, err, f"Single file preview job started at {now}"))
+
+    kind = "Subset Preview" if subset else "Preview"
+    print(f"Generating a {kind} of '{book_slug}'")
+    resp, err = client.preview(book_slug=book_slug, subset=subset)
+    sys.exit(_handle_response(resp, err, f"{kind} job started at {now}"))
+
+
+@main.command()
+@click.option("--email-readers", envvar="INPUT_EMAIL-READERS", is_flag=True, help="Email readers about the publish.")
+@click.option("--release-notes", envvar="INPUT_RELEASE-NOTES", default=None, help="Release notes for the publish.")
+@click.pass_context
+def publish(ctx: click.Context, email_readers: bool, release_notes: str | None) -> None:
+    """Publish the book."""
+    book_slug = ctx.obj["book_slug"]
+    print(f"Publishing '{book_slug}'")
+    resp, err = ctx.obj["client"].publish(
+        book_slug=book_slug,
+        email_readers=email_readers,
+        release_notes=release_notes,
+    )
+    sys.exit(_handle_response(resp, err, f"Publish job started at {datetime.datetime.now(datetime.UTC)}"))
+
+
+@main.command(name="check-status")
+@click.pass_context
+def check_status(ctx: click.Context) -> None:
+    """Check the job status of a preview or publish."""
+    book_slug = ctx.obj["book_slug"]
+    print(f"Checking status of '{book_slug}'")
+    resp, err = ctx.obj["client"].check_status(book_slug=book_slug)
+    if err is not None:
+        print(err)
+        sys.exit(1)
+    if resp is not None and resp.status_code == 200:
+        print(f"Status: {resp.json()}")
+        sys.exit(0)
+    print("Unknown error has occurred!")
+    sys.exit(1)
